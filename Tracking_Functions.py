@@ -72,6 +72,25 @@ def calc_grid_distance_area(lat,lon):
 
     return dx,dy,area,grid_distance
 
+def radialdistance(lat1,lon1,lat2,lon2):
+    # Approximate radius of earth in km
+    R = 6373.0
+
+    lat1 = np.radians(lat1)
+    lon1 = np.radians(lon1)
+    lat2 = np.radians(lat2)
+    lon2 = np.radians(lon2)
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+
+    distance = R * c
+    return distance
+
+
 def haversine(lat1, lon1, lat2, lon2):
 
     """Function to calculate grid distances lat-lon
@@ -115,7 +134,10 @@ def calculate_area_objects(objects_id_pr,object_indices,grid_cell_area):
 
     return area_objects
 
-def remove_small_short_objects(objects_id,area_objects,min_area,min_time,DT):
+def remove_small_short_objects(objects_id,
+                               area_objects,
+                               min_area,
+                               min_time,DT):
     """Checks if the object is large enough during enough time steps
         and removes objects that do not meet this condition
         area_object: array of lists with areas of each objects during their lifetime [objects[tsteps]]
@@ -142,6 +164,7 @@ def remove_small_short_objects(objects_id,area_objects,min_area,min_time,DT):
             new_obj_id += 1
 
     return sel_objects
+
 
 
 
@@ -674,7 +697,7 @@ def ReadERA5_2D(TIME,      # Time period to read (this program will read hourly 
     DataAll = np.zeros((len(TIME),Lon.shape[0],Lon.shape[1])); DataAll[:]=np.nan
     tt=0
     
-    for mm in range(len(TimeMM)):
+    for mm in tqdm(range(len(TimeMM))):
         YYYYMM = str(TimeMM[mm].year)+str(TimeMM[mm].month).zfill(2)
         YYYY = TimeMM[mm].year
         MM = TimeMM[mm].month
@@ -1088,7 +1111,7 @@ def MultiObjectIdentification(
     MCS_minTime = 4                # minimum lifetime of MCS [hours]
     ):
     
-    Variables = ['V', 'U', 'T', 'Q', 'SLP', 'IVTE', 'IVTN', 'PR', 'BT']
+    Variables = ['V850', 'U850', 'T850', 'Q850', 'SLP-1', 'IVTE-1', 'IVTN-1','Z500','V200','U200', 'PR-1', 'BT-1']
     # calculate grid spacing assuming regular lat/lon grid
     _,_,Area,Gridspacing = calc_grid_distance_area(Lat,Lon)
     Area[Area < 0] = 0
@@ -1122,18 +1145,18 @@ def MultiObjectIdentification(
     start = time.perf_counter()
     # 11111111111111111111111111111111111111111111111111
     # calculate vapor transport on pressure level
-    VapTrans = ((DATA_all[:,:,:,Variables.index('U')]*DATA_all[:,:,:,Variables.index('Q')])**2 + (DATA_all[:,:,:,Variables.index('V')]*DATA_all[:,:,:,Variables.index('Q')])**2)**(1/2)
+    VapTrans = ((DATA_all[:,:,:,Variables.index('U850')]*DATA_all[:,:,:,Variables.index('Q850')])**2 + (DATA_all[:,:,:,Variables.index('V850')]*DATA_all[:,:,:,Variables.index('Q850')])**2)**(1/2)
 
     # 22222222222222222222222222222222222222222222222222
     # Frontal Detection according to https://agupubs.onlinelibrary.wiley.com/doi/full/10.1002/2017GL073662
-    UU = DATA_all[:,:,:,Variables.index('U')]
-    VV = DATA_all[:,:,:,Variables.index('V')]
+    UU = DATA_all[:,:,:,Variables.index('U850')]
+    VV = DATA_all[:,:,:,Variables.index('V850')]
     dx = dLon
     dy = dLat
     du = np.gradient( UU )
     dv = np.gradient( VV )
     PV = np.abs( dv[-1]/dx[None,:] - du[-2]/dy[None,:] )
-    TK = DATA_all[:,:,:,Variables.index('T')]
+    TK = DATA_all[:,:,:,Variables.index('T850')]
     vgrad = np.gradient(TK, axis=(1,2))
     Tgrad = np.sqrt(vgrad[0]**2 + vgrad[1]**2)
 
@@ -1148,7 +1171,7 @@ def MultiObjectIdentification(
     # # 3333333333333333333333333333333333333333333333333333
     # # Cyclone identification based on pressure annomaly threshold    
     
-    SLP = DATA_all[:,:,:,Variables.index('SLP')]/100.
+    SLP = DATA_all[:,:,:,Variables.index('SLP-1')]/100.
     if np.sum(np.isnan(SLP)) == 0:
         # remove high-frequency variabilities --> smooth over 100 x 100 km (no temporal smoothing)
         SLP_smooth = ndimage.uniform_filter(SLP, size=[1,int(100/(Gridspacing/1000.)),int(100/(Gridspacing/1000.))])
@@ -1195,7 +1218,7 @@ def MultiObjectIdentification(
 
     # 4444444444444444444444444444444444444444444444444444444
     # calculate IVT
-    IVT = ((DATA_all[:,:,:,Variables.index('IVTE')])**2+np.abs(DATA_all[:,:,:,Variables.index('IVTN')])**2)**0.5
+    IVT = ((DATA_all[:,:,:,Variables.index('IVTE-1')])**2+np.abs(DATA_all[:,:,:,Variables.index('IVTN-1')])**2)**0.5
 
     # Mask data outside of Focus domain
     DATA_all[:,Mask == 0,:] = np.nan
@@ -1204,6 +1227,47 @@ def MultiObjectIdentification(
     Frontal_Diagnostic[:,Mask == 0] = np.nan
     VapTrans[:,Mask == 0] = np.nan
     SLP[:,Mask == 0] = np.nan
+    
+    # 5555555555555555555555555555555555555555555555555555555
+    # Detect jet stream features
+    uv200 = (DATA_all[:,:,:,Variables.index('U200')]**2 + DATA_all[:,:,:,Variables.index('U200')]**2)**0.5
+    
+    # 666666666666666666666666666666666666666666666666666666
+    # Cyclone and cutoff low detection from 500 hPa Geopotential Heigth (Z500)
+    z500 = DATA_all[:,:,:,Variables.index('Z500')]/9.81
+    if np.sum(np.isnan(z500)) == 0:
+        # remove high-frequency variabilities --> smooth over 100 x 100 km (no temporal smoothing)
+        z500_smooth = ndimage.uniform_filter(z500, size=[1,int(100/(Gridspacing/1000.)),int(100/(Gridspacing/1000.))])
+        # smoothign over 3000 x 3000 km and 78 hours
+        z500smoothAn = ndimage.uniform_filter(z500, size=[int(78/dT),int(int(3000/(Gridspacing/1000.))),int(int(3000/(Gridspacing/1000.)))])
+    else:
+        # this code takes care of the smoothing of fields that contain NaN values
+        # from - https://stackoverflow.com/questions/18697532/gaussian-filtering-a-image-with-nan-in-python
+        U=z500.copy()               # random array...
+        V=z500.copy()
+        V[np.isnan(U)]=0
+        VV = ndimage.uniform_filter(V, size=[int(78/dT),int(int(3000/(Gridspacing/1000.))),int(int(3000/(Gridspacing/1000.)))])
+        W=0*U.copy()+1
+        W[np.isnan(U)]=0
+        WW=ndimage.uniform_filter(W, size=[int(78/dT),int(int(3000/(Gridspacing/1000.))),int(int(3000/(Gridspacing/1000.)))])
+        z500smoothAn=VV/WW
+
+        VV = ndimage.uniform_filter(V, size=[1,int(100/(Gridspacing/1000.)),int(100/(Gridspacing/1000.))])
+        WW=ndimage.uniform_filter(W, size=[1,int(100/(Gridspacing/1000.)),int(100/(Gridspacing/1000.))])
+        z500_smooth = VV/WW
+    
+    z500_Anomaly = z500_smooth - z500smoothAn
+    z500_Anomaly[:,Mask == 0] = np.nan
+    
+#     # remove high-frequency variabilities --> smooth over 100 x 100 km (no temporal smoothing)
+#     z500_smooth = ndimage.uniform_filter(z500, size=[1,int(100/(Gridspacing/1000.)),int(100/(Gridspacing/1000.))])
+#     # smoothign over 3000 x 3000 km and 78 hours
+#     z500smoothAn = ndimage.uniform_filter(z500, size=[int(78/dT),int(int(3000/(Gridspacing/1000.))),int(int(3000/(Gridspacing/1000.)))])
+#     z500_Anomaly = z500_smooth - z500smoothAn
+#     z500_Anomaly[:,Mask == 0] = np.nan
+
+    z_low = z500_Anomaly < -80
+    z_high = z500_Anomaly > 70
     
     end = time.perf_counter()
     timer(start, end)
@@ -1505,6 +1569,333 @@ def MultiObjectIdentification(
     timer(start, end)
 
 
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    print('    track 500 hPa anticyclones')
+    start = time.perf_counter()
+    #     Pressure_anomaly[np.isnan(Pressure_anomaly)] = 0
+    z_high[:,Mask == 0] = 0
+    rgiObjectsUD, nr_objectsUD = ndimage.label(z_high, structure=rgiObj_Struct)
+    print('            '+str(nr_objectsUD)+' object found')
+
+    acy_z500_objects = clean_up_objects(rgiObjectsUD,
+                                min_tsteps=int(MinTimeCY/dT),
+                                 dT = dT)
+
+
+    print('        break up long living CY objects that heve many elements')
+    acy_z500_objects = BreakupObjects(acy_z500_objects,
+                                int(MinTimeCY/dT),
+                                dT)
+    if connectLon == 1:
+        print('        connect cyclones objects over date line')
+        acy_z500_objects = ConnectLon_on_timestep(acy_z500_objects)
+
+
+    acy_z500_objects_characteristics = calc_object_characteristics(acy_z500_objects, # feature object file
+                                     z500,         # original file used for feature detection
+                                     OutputFolder+'CY-z500_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+DataName+SetupString,
+                                     Time,            # timesteps of the data
+                                     Lat,             # 2D latidudes
+                                     Lon,             # 2D Longitudes
+                                     Gridspacing,
+                                     Area,
+                                     min_tsteps=int(MinTimeCY/dT)) 
+    end = time.perf_counter()
+    timer(start, end)
+    
+    
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    print('    track 500 hPa cyclones')
+    start = time.perf_counter()
+    #     Pressure_anomaly[np.isnan(Pressure_anomaly)] = 0
+    z_low[:,Mask == 0] = 0
+    rgiObjectsUD, nr_objectsUD = ndimage.label(z_low,structure=rgiObj_Struct)
+    print('            '+str(nr_objectsUD)+' object found')
+
+    cy_z500_objects = clean_up_objects(rgiObjectsUD,
+                                min_tsteps=int(MinTimeCY/dT),
+                                 dT = dT)
+
+
+    print('        break up long living CY objects that heve many elements')
+    cy_z500_objects = BreakupObjects(cy_z500_objects,
+                                int(MinTimeCY/dT),
+                                dT)
+    if connectLon == 1:
+        print('        connect cyclones objects over date line')
+        cy_z500_objects = ConnectLon_on_timestep(cy_z500_objects)
+
+
+    cy_z500_objects_characteristics = calc_object_characteristics(cy_z500_objects, # feature object file
+                                     z500,         # original file used for feature detection
+                                     OutputFolder+'CY-z500_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+DataName+SetupString,
+                                     Time,            # timesteps of the data
+                                     Lat,             # 2D latidudes
+                                     Lon,             # 2D Longitudes
+                                     Gridspacing,
+                                     Area,
+                                     min_tsteps=int(MinTimeCY/dT)) 
+    end = time.perf_counter()
+    timer(start, end)
+    
+    
+    # Check if cyclones are cutoff lows
+    # ------------------------
+    # ------------------------
+    # ------------------------
+    # ------------------------
+    # ------------------------
+    # ------------------------
+    print('    Check if cyclones qualify as Cut Off Low (COL)')
+    ### COL detection is similar to https://journals.ametsoc.org/view/journals/clim/33/6/jcli-d-19-0497.1.xml
+    start = time.perf_counter()
+    col_Tracks = {}
+    col_Time = {}
+    aa=1
+    # area arround cyclone
+    col_buffer = 500000 # m
+
+    # check if cyclone is COL
+    Objects=ndimage.find_objects(cy_z500_objects.astype(int))
+    col_obj = np.copy(cy_z500_objects); col_obj[:]=0
+    u200 = DATA_all[:,:,:,Variables.index('U200')]
+    for ii in range(len(Objects)):
+        if Objects[ii] == None:
+            continue
+        ObjACT = cy_z500_objects[Objects[ii]] == ii+1
+        if ObjACT.shape[0] < MinTimeC:
+            continue
+
+        dxObj = abs(np.mean(dx[Objects[ii][1],Objects[ii][2]]))
+        dyObj = abs(np.mean(dy[Objects[ii][1],Objects[ii][2]]))
+        col_buffer_obj_lo = int(col_buffer/dxObj)
+        col_buffer_obj_la = int(col_buffer/dyObj)
+
+        # add buffer to object slice
+        tt_start = Objects[ii][0].start
+        tt_stop = Objects[ii][0].stop
+        lo_start = Objects[ii][2].start - col_buffer_obj_lo 
+        lo_stop = Objects[ii][2].stop + col_buffer_obj_lo
+        la_start = Objects[ii][1].start - col_buffer_obj_la 
+        la_stop = Objects[ii][1].stop + col_buffer_obj_la
+        if lo_start < 0:
+            lo_start = 0
+        if lo_stop >= Lon.shape[1]:
+            lo_stop = Lon.shape[1]-1
+        if la_start < 0:
+            la_start = 0
+        if la_stop >= Lon.shape[0]:
+            la_stop = Lon.shape[0]-1
+
+        LonObj = Lon[la_start:la_stop, lo_start:lo_stop]
+        LatObj = Lat[la_start:la_stop, lo_start:lo_stop]
+
+        z500_ACT = np.copy(z500[tt_start:tt_stop, la_start:la_stop, lo_start:lo_stop])
+        ObjACT = cy_z500_objects[tt_start:tt_stop, la_start:la_stop, lo_start:lo_stop] == ii+1
+        u200_ob = u200[tt_start:tt_stop, la_start:la_stop, lo_start:lo_stop]
+        front_ob = Frontal_Diagnostic[tt_start:tt_stop, la_start:la_stop, lo_start:lo_stop]
+        if LonObj[0,-1] - LonObj[0,0] > 358:
+            sift_lo = 'yes'
+            # object crosses the date line
+            shift = int(LonObj.shape[1]/2)
+            LonObj = np.roll(LonObj, shift, axis=1)
+            LatObj = np.roll(LatObj, shift, axis=1)
+            z500_ACT = np.roll(z500_ACT, shift, axis=2)
+            ObjACT = np.roll(ObjACT, shift, axis=2)
+            u200_ob = np.roll(u200_ob, shift, axis=2)
+            front_ob = np.roll(front_ob, shift, axis=2)
+        else:
+            sift_lo = 'no'
+
+        # find location of z500 minimum
+        z500_ACT_obj = np.copy(z500_ACT)
+        z500_ACT_obj[ObjACT == 0] = 999999999999.
+
+        for tt in range(z500_ACT_obj.shape[0]):
+            min_loc = np.where(z500_ACT_obj[tt,:,:] == np.nanmin(z500_ACT_obj[tt]))
+            min_la = min_loc[0][0]
+            min_lo = min_loc[1][0]
+            la_0 = min_la - col_buffer_obj_la
+            if la_0 < 0:
+                la_0 = 0
+            lo_0 = min_lo - col_buffer_obj_lo
+            if lo_0 < 0:
+                lo_0 = 0
+
+            lat_reg = LatObj[la_0:min_la + col_buffer_obj_la+1,
+                             lo_0:min_lo + col_buffer_obj_lo+1]
+            lon_reg = LonObj[la_0:min_la + col_buffer_obj_la+1,
+                             lo_0:min_lo + col_buffer_obj_lo+1]
+
+            col_region = z500_ACT[tt,
+                                  la_0:min_la + col_buffer_obj_la+1,
+                                  lo_0:min_lo + col_buffer_obj_lo+1]
+            obj_col_region = z500_ACT_obj[tt,
+                                  la_0:min_la + col_buffer_obj_la+1,
+                                  lo_0:min_lo + col_buffer_obj_lo+1]
+            min_z500_obj = z500_ACT[tt,min_la,min_lo]
+            u200_ob_region = u200_ob[tt,
+                                  la_0:min_la + col_buffer_obj_la+1,
+                                  lo_0:min_lo + col_buffer_obj_lo+1]
+            front_ob_region = front_ob[tt,
+                                  la_0:min_la + col_buffer_obj_la+1,
+                                  lo_0:min_lo + col_buffer_obj_lo+1]
+
+
+            # check if 350 km radius arround center has higher Z
+            min_loc_tt = np.where(obj_col_region[:,:] == 
+                                  np.nanmin(z500_ACT_obj[tt]))
+            min_la_tt = min_loc_tt[0][0]
+            min_lo_tt = min_loc_tt[1][0]
+
+            rdist = radialdistance(lat_reg[min_la_tt,min_lo_tt],
+                                   lon_reg[min_la_tt,min_lo_tt],
+                                   lat_reg,
+                                   lon_reg)
+
+            # COL should only occure between 20 and 70 degrees
+            # https://journals.ametsoc.org/view/journals/clim/33/6/jcli-d-19-0497.1.xml
+            if (abs(lat_reg[min_la_tt,min_lo_tt]) < 20) | (abs(lat_reg[min_la_tt,min_lo_tt]) > 70):
+                ObjACT[tt,:,:] = 0
+                continue
+
+            # remove cyclones that are close to the poles
+            if np.max(np.abs(lat_reg)) > 88:
+                ObjACT[tt,:,:] = 0
+                continue
+
+            if np.nanmin(z500_ACT_obj[tt]) > 100000:
+                # there is no object to process
+                ObjACT[tt,:,:] = 0
+                continue
+
+            # CRITERIA 1) at least 75 % of grid cells in ring have have 10 m higher Z than center
+            ring = (rdist >= (350 - (dxObj/1000.)*2))  & (rdist <= (350 + (dxObj/1000.)*2))
+            if np.sum((min_z500_obj - col_region[ring]) < -10) < np.sum(ring)*0.75:
+                ObjACT[tt,:,:] = 0
+                continue
+
+            # CRITERIA 2) check if 200 hPa wind speed is eastward in the poleward direction of the cyclone
+            if lat_reg[min_la_tt,min_lo_tt] > 0:
+                east_flow = u200_ob_region[0 : min_la_tt,
+                                    min_lo_tt]
+            else:
+                east_flow = u200_ob_region[min_la_tt : -1,
+                                    min_lo_tt]
+
+            try:
+                if np.min(east_flow) > 0:
+                    ObjACT[tt,:,:] = 0
+                    continue
+            except:
+                ObjACT[tt,:,:] = 0
+                continue
+
+            # Criteria 3) frontal zone in eastern flank of COL
+            front_test = np.sum(np.abs(front_ob_region[:, min_lo_tt:]) > 1)
+            if front_test < 1:
+                ObjACT[tt,:,:] = 0
+                continue
+
+        if sift_lo == 'yes':
+            ObjACT = np.roll(ObjACT, -shift, axis=2)
+
+        ObjACT = ObjACT.astype('int')
+        ObjACT[ObjACT > 0] = ii+1
+        ObjACT = ObjACT + col_obj[tt_start:tt_stop, la_start:la_stop, lo_start:lo_stop]
+        col_obj[tt_start:tt_stop, la_start:la_stop, lo_start:lo_stop] = ObjACT
+
+    col_stats = calc_object_characteristics(col_obj, # feature object file
+                         DATA_all[:,:,:,Variables.index('Z500')],         # original file used for feature detection
+                         OutputFolder+'COL_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+DataName+SetupString,
+                         Time,            # timesteps of the data
+                         Lat,             # 2D latidudes
+                         Lon,             # 2D Longitudes
+                         Gridspacing,
+                         Area,
+                         min_tsteps=1)      # minimum livetime in hours
+    end = time.perf_counter()
+    timer(start, end)
+    
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    # ---------------------------------------
+    print('    track jetstream')
+
+    MinTimeJS = 48 # hours
+    js_min_anomaly = 22
+
+    
+    if np.sum(np.isnan(uv200)) == 0:
+        uv200_smooth = ndimage.uniform_filter(uv200, size=[1,int(500/(Gridspacing/1000.)),int(500/(Gridspacing/1000.))])
+        # smoothign over 3000 x 3000 km and 78 hours
+        uv200smoothAn = ndimage.uniform_filter(uv200, size=[int(78/dT),int(int(5000/(Gridspacing/1000.))),int(int(5000/(Gridspacing/1000.)))])
+    else:
+        # this code takes care of the smoothing of fields that contain NaN values
+        # from - https://stackoverflow.com/questions/18697532/gaussian-filtering-a-image-with-nan-in-python
+        U=uv200.copy()               # random array...
+        V=uv200.copy()
+        V[np.isnan(U)]=0
+        VV = ndimage.uniform_filter(V, size=[int(78/dT),int(int(5000/(Gridspacing/1000.))),int(int(5000/(Gridspacing/1000.)))])
+        W=0*U.copy()+1
+        W[np.isnan(U)]=0
+        WW=ndimage.uniform_filter(W, size=[int(78/dT),int(int(5000/(Gridspacing/1000.))),int(int(5000/(Gridspacing/1000.)))])
+        uv200smoothAn=VV/WW
+
+        VV = ndimage.uniform_filter(V, size=[1,int(500/(Gridspacing/1000.)),int(500/(Gridspacing/1000.))])
+        WW=ndimage.uniform_filter(W, size=[1,int(500/(Gridspacing/1000.)),int(500/(Gridspacing/1000.))])
+        uv200_smooth = VV/WW
+    
+    uv200_Anomaly = uv200_smooth - uv200smoothAn
+    jet = uv200_Anomaly[:,:,:] >= js_min_anomaly
+
+
+    start = time.perf_counter()
+    #     Pressure_anomaly[np.isnan(Pressure_anomaly)] = 0
+    jet[:,Mask == 0] = 0
+    rgiObjectsUD, nr_objectsUD = ndimage.label(jet, structure=rgiObj_Struct)
+    print('            '+str(nr_objectsUD)+' object found')
+
+    jet_objects = clean_up_objects(rgiObjectsUD,
+                                min_tsteps=int(MinTimeJS/dT),
+                                 dT = dT)
+
+
+    print('        break up long living CY objects that heve many elements')
+    jet_objects = BreakupObjects(jet_objects,
+                                int(MinTimeCY/dT),
+                                dT)
+    if connectLon == 1:
+        print('        connect cyclones objects over date line')
+        jet_objects = ConnectLon_on_timestep(jet_objects)
+
+
+    jet_objects_characteristics = calc_object_characteristics(jet_objects, # feature object file
+                                     uv200,         # original file used for feature detection
+                                     OutputFolder+'jet_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+DataName+SetupString,
+                                     Time,            # timesteps of the data
+                                     Lat,             # 2D latidudes
+                                     Lon,             # 2D Longitudes
+                                     Gridspacing,
+                                     Area,
+                                     min_tsteps=int(MinTimeCY/dT)) 
+    end = time.perf_counter()
+    timer(start, end)
+    
+    
     ### Identify Frontal regions
     # ------------------------
     print('    identify frontal zones')
@@ -1541,7 +1932,7 @@ def MultiObjectIdentification(
     # ------------------------
     print('    track  precipitation')
     start = time.perf_counter()
-    PRsmooth=gaussian_filter(DATA_all[:,:,:,Variables.index('PR')], sigma=(0,SmoothSigmaP,SmoothSigmaP))
+    PRsmooth=gaussian_filter(DATA_all[:,:,:,Variables.index('PR-1')], sigma=(0,SmoothSigmaP,SmoothSigmaP))
     PRmask = (PRsmooth >= Pthreshold*dT)
     rgiObjectsPR, nr_objectsUD = ndimage.label(PRmask, structure=rgiObj_Struct)
     print('        '+str(nr_objectsUD)+' precipitation object found')
@@ -1581,7 +1972,7 @@ def MultiObjectIdentification(
         PR_objects = ConnectLon_on_timestep(PR_objects)
 
     grPRs = calc_object_characteristics(PR_objects, # feature object file
-                                 DATA_all[:,:,:,Variables.index('PR')],         # original file used for feature detection
+                                 DATA_all[:,:,:,Variables.index('PR-1')],         # original file used for feature detection
                                  OutputFolder+'PR_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+DataName+SetupString,
                                  Time,            # timesteps of the data
                                  Lat,             # 2D latidudes
@@ -1597,7 +1988,7 @@ def MultiObjectIdentification(
     # ------------------------
     print('    track  clouds')
     start = time.perf_counter()
-    Csmooth=gaussian_filter(DATA_all[:,:,:,Variables.index('BT')], sigma=(0,SmoothSigmaC,SmoothSigmaC))
+    Csmooth=gaussian_filter(DATA_all[:,:,:,Variables.index('BT-1')], sigma=(0,SmoothSigmaC,SmoothSigmaC))
     Cmask = (Csmooth <= Cthreshold)
     rgiObjectsC, nr_objectsUD = ndimage.label(Cmask, structure=rgiObj_Struct)
     print('        '+str(nr_objectsUD)+' cloud object found')
@@ -1634,7 +2025,7 @@ def MultiObjectIdentification(
         C_objects = ConnectLon_on_timestep(C_objects)
 
     grCs = calc_object_characteristics(C_objects, # feature object file
-                                 DATA_all[:,:,:,Variables.index('BT')],         # original file used for feature detection
+                                 DATA_all[:,:,:,Variables.index('BT-1')],         # original file used for feature detection
                                  OutputFolder+'Clouds_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+DataName+SetupString,
                                  Time,            # timesteps of the data
                                  Lat,             # 2D latidudes
@@ -1667,7 +2058,7 @@ def MultiObjectIdentification(
         LonObj = Lon[Objects[ii][1],Objects[ii][2]]
         LatObj = Lat[Objects[ii][1],Objects[ii][2]]   
         Area_ACT = Area[Objects[ii][1],Objects[ii][2]]
-        PR_ACT = DATA_all[:,:,:,Variables.index('PR')][Objects[ii]]
+        PR_ACT = DATA_all[:,:,:,Variables.index('PR-1')][Objects[ii]]
 
         PR_Size = np.array([np.sum(Area_ACT[ObjACT[tt,:,:] >0]) for tt in range(ObjACT.shape[0])])
         PR_MAX = np.array([np.max(PR_ACT[tt,ObjACT[tt,:,:] >0]) if len(PR_ACT[tt,ObjACT[tt,:,:]>0]) > 0 else 0 for tt in range(ObjACT.shape[0])])
@@ -1681,7 +2072,7 @@ def MultiObjectIdentification(
         Cloud_Size = np.array([np.sum(Area[CLOUD_obj_act[tt,:,:] >0]) for tt in range(CLOUD_obj_act.shape[0])])
         # min temperatur must be taken over precip area
     #     CL_ob_pr = C_objects[Objects[ii]]
-        CL_BT_pr = np.copy(DATA_all[:,:,:,Variables.index('BT')][Objects[ii]])
+        CL_BT_pr = np.copy(DATA_all[:,:,:,Variables.index('BT-1')][Objects[ii]])
         CL_BT_pr[ObjACT == 0] = np.nan
         Cloud_MinT = np.nanmin(CL_BT_pr, axis=(1,2))
     #     Cloud_MinT = np.array([np.min(CL_BT_pr[tt,CL_ob_pr[tt,:,:] >0]) if len(CL_ob_pr[tt,CL_ob_pr[tt,:,:] >0]) > 0 else 0 for tt in range(CL_ob_pr.shape[0])])
@@ -1747,7 +2138,7 @@ def MultiObjectIdentification(
                             min_tsteps=int(MCS_minTime/dT))        
     
     grMCSs = calc_object_characteristics(MCS_obj, # feature object file
-                             DATA_all[:,:,:,Variables.index('PR')],         # original file used for feature detection
+                             DATA_all[:,:,:,Variables.index('PR-1')],         # original file used for feature detection
                              OutputFolder+'MCSs_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+DataName+SetupString,
                              Time,            # timesteps of the data
                              Lat,             # 2D latidudes
@@ -1764,7 +2155,7 @@ def MultiObjectIdentification(
     # TRACK MCSs AS TB SHIELDS
     print(f"======> 'check if Tb objects quallify as MCS (or selected storm type)")
     start_time = time.time()
-    bt_data = DATA_all[:,:,:,Variables.index('BT')]
+    bt_data = DATA_all[:,:,:,Variables.index('BT-1')]
     # check if precipitation object is from an MCS
     object_indices = ndimage.find_objects(rgiObjectsC)
     MCS_objects_Tb = np.zeros(rgiObjectsC.shape,dtype=int)
@@ -1799,7 +2190,7 @@ def MultiObjectIdentification(
         tb_min = np.array(np.nanmin(tb_act,axis=(1,2)))
 
         ### Calculate precipitation properties
-        pr_act = np.copy(DATA_all[:,:,:,Variables.index('PR')][object_indices[iobj]])
+        pr_act = np.copy(DATA_all[:,:,:,Variables.index('PR-1')][object_indices[iobj]])
         pr_act[tb_object_act == 0] = np.nan
 
         pr_peak_act = np.array(np.nanmax(pr_act,axis=(1,2)))
@@ -1851,7 +2242,7 @@ def MultiObjectIdentification(
     # objects_id_MCS, num_objects = ndimage.label(MCS_objects_Tb, structure=obj_structure_3D)
     grMCSs_Tb = calc_object_characteristics(
         MCS_objects_Tb,  # feature object file
-        DATA_all[:,:,:,Variables.index('PR')],  # original file used for feature detection
+        DATA_all[:,:,:,Variables.index('PR-1')],  # original file used for feature detection
         OutputFolder+'MCSs_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+DataName+SetupString+'_Tb.pkl',
         Time,            # timesteps of the data
         Lat,             # 2D latidudes
@@ -1928,7 +2319,7 @@ def MultiObjectIdentification(
 
             # is the cloud shield cold enough?
             PR_objACT = np.copy(PR_objects[Objects[ii]])
-            BT_act = np.copy(DATA_all[:,:,:,Variables.index('BT')][Objects[ii]])
+            BT_act = np.copy(DATA_all[:,:,:,Variables.index('BT-1')][Objects[ii]])
             BT_objMean = np.zeros((BT_act.shape[0])); BT_objMean[:] = np.nan
             for tt in range(len(BT_objMean)):
                 try:
@@ -1979,7 +2370,7 @@ def MultiObjectIdentification(
 #                                    dT)   
     
     grTCs = calc_object_characteristics(TC_obj, # feature object file
-                             DATA_all[:,:,:,Variables.index('SLP')],         # original file used for feature detection
+                             DATA_all[:,:,:,Variables.index('SLP-1')],         # original file used for feature detection
                              OutputFolder+'TC_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+DataName+SetupString,
                              Time,            # timesteps of the data
                              Lat,             # 2D latidudes
@@ -2025,6 +2416,12 @@ def MultiObjectIdentification(
     ARs = dataset.createVariable('AR_Objects', np.float32,('time','yc','xc'),zlib=True)
     SLP_real = dataset.createVariable('SLP', np.float32,('time','yc','xc'),zlib=True)
     T_real = dataset.createVariable('T850', np.float32,('time','yc','xc'),zlib=True)
+    CY_z500_real = dataset.createVariable('CY_z500', np.float32,('time','yc','xc'),zlib=True)
+    CY_z500_obj = dataset.createVariable('CY_z500_Objects', np.float32,('time','yc','xc'),zlib=True)
+    ACY_z500_obj = dataset.createVariable('ACY_z500_Objects', np.float32,('time','yc','xc'),zlib=True)
+    Z500_real = dataset.createVariable('Z500', np.float32,('time','yc','xc'),zlib=True)
+    COL = dataset.createVariable('COL_Objects', np.float32,('time','yc','xc'),zlib=True)
+    JET = dataset.createVariable('JET_Objects', np.float32,('time','yc','xc'),zlib=True)
 
     times.calendar = "standard"
     times.units = "seconds since "+str(Time[0].year)+"-"+str(Time[0].month).zfill(2)+"-"+str(Time[0].day).zfill(2)+" "+str(Time[0].hour).zfill(2)+":"+str(Time[0].minute).zfill(2)+":00"
@@ -2058,10 +2455,16 @@ def MultiObjectIdentification(
     IVT_obj.coordinates = "lon lat"
     ARs.coordinates = "lon lat"
     TCs.coordinates = "lon lat"
+    CY_z500_real.coordinates = "lon lat"
+    CY_z500_obj.coordinates = "lon lat"
+    ACY_z500_obj.coordinates = "lon lat"
+    COL.coordinates = "lon lat"
+    Z500_real.coordinates = "lon lat"
+    JET.coordinates = "lon lat"
 
     lat[:] = Lat
     lon[:] = Lon
-    PR_real[:] = DATA_all[:,:,:,Variables.index('PR')]
+    PR_real[:] = DATA_all[:,:,:,Variables.index('PR-1')]
     PR_obj[:] = PR_objects
     MCSs[:] = MCS_obj
     MCSs_Tb[:] = MCS_objects_Tb
@@ -2078,8 +2481,14 @@ def MultiObjectIdentification(
     IVT_real[:] = IVT
     IVT_obj[:] = IVT_objects
     ARs[:] = AR_obj
-    Cloud_real[:] = DATA_all[:,:,:,Variables.index('BT')]
+    Cloud_real[:] = DATA_all[:,:,:,Variables.index('BT-1')]
     Cloud_obj[:] = C_objects
+    CY_z500_real[:] = z500
+    CY_z500_obj[:] = cy_z500_objects
+    ACY_z500_obj[:] = acy_z500_objects
+    COL[:] = col_obj
+    Z500_real[:] = DATA_all[:,:,:,Variables.index('Z500')]
+    JET[:] = jet_objects
     times[:] = iTime
 
     dataset.close()
