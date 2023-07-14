@@ -4643,7 +4643,7 @@ def track_tropwaves(pr,
 
 
 
-def MultiObjectIdentification_v2(
+def moaap(
     Lon,                           # 2D longitude grid centers
     Lat,                           # 2D latitude grid spacing
     Time,                          # datetime vector of data
