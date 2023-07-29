@@ -46,7 +46,7 @@ import netCDF4
 ###########################################################
 
 ### UTILITY Functions
-def calc_grid_distance_area(lat,lon):
+def calc_grid_distance_area(lon,lat):
     """ Function to calculate grid parameters
         It uses haversine function to approximate distances
         It approximates the first row and column to the sencond
@@ -57,21 +57,22 @@ def calc_grid_distance_area(lat,lon):
         area: area of grid cell (m2)
         grid_distance: average grid distance over the domain (m)
     """
-    dy = np.zeros(lat.shape)
-    dx = np.zeros(lon.shape)
+    dy = np.zeros(lon.shape)
+    dx = np.zeros(lat.shape)
 
-    dx[:,1:]=haversine(lat[:,1:],lon[:,1:],lat[:,:-1],lon[:,:-1])
-    dy[1:,:]=haversine(lat[1:,:],lon[1:,:],lat[:-1,:],lon[:-1,:])
+    dx[:,1:]=haversine(lon[:,1:],lat[:,1:],lon[:,:-1],lat[:,:-1])
+    dy[1:,:]=haversine(lon[1:,:],lat[1:,:],lon[:-1,:],lat[:-1,:])
 
     dx[:,0] = dx[:,1]
     dy[0,:] = dy[1,:]
+    
+    dx = dx * 10**3
+    dy = dy * 10**3
 
     area = dx*dy
     grid_distance = np.mean(np.append(dy[:, :, None], dx[:, :, None], axis=2))
 
     return dx,dy,area,grid_distance
-
-
 
 
 def radialdistance(lat1,lon1,lat2,lon2):
@@ -283,7 +284,7 @@ def calc_object_characteristics(
 
 
         if filename_out is not None:
-            with open(filename_out, 'wb') as handle:
+            with open(filename_out+'.pkl', 'wb') as handle:
                 pickle.dump(objects_charac, handle)
 
         return objects_charac
@@ -4655,7 +4656,7 @@ def moaap(
     q850 = None, # 850 hPa mixing ratio [g/kg]
     slp = None,  # sea level pressure [Pa]
     ivte = None, # zonal integrated vapor transport [kg m-1 s-1]
-    ivtn = None, # meidional integrated vapor transport [kg m-1 s-1]
+    ivtn = None, # meridional integrated vapor transport [kg m-1 s-1]
     z500 = None, # geopotential height [gpm]
     v200 = None, # 200 hPa zonal wind speed [m/s]
     u200 = None, # 200 hPa meridional wind speed [m/s]
