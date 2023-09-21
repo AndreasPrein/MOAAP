@@ -154,12 +154,16 @@ def calculate_area_objects(objects_id_pr,object_indices,grid_cell_area):
 def remove_small_short_objects(objects_id,
                                area_objects,
                                min_area,
-                               min_time,DT):
+                               min_time,
+                               DT,
+                               objects = None):
     """Checks if the object is large enough during enough time steps
         and removes objects that do not meet this condition
         area_object: array of lists with areas of each objects during their lifetime [objects[tsteps]]
         min_area: minimum area of the object (km2)
         min_time: minimum time with the object large enough (hours)
+        DT: time step of input data [hours]
+        objects: object slices - speeds up processing if provided
     """
 
     #create final object array
@@ -167,7 +171,7 @@ def remove_small_short_objects(objects_id,
 
     new_obj_id = 1
     for obj,_ in enumerate(area_objects):
-        AreaTest = np.max(
+        AreaTest = np.nanmax(
             np.convolve(
                 np.array(area_objects[obj]) >= min_area * 1000**2,
                 np.ones(int(min_time/ DT)),
@@ -177,8 +181,12 @@ def remove_small_short_objects(objects_id,
         if (AreaTest == int(min_time/ DT)) & (
             len(area_objects[obj]) >= int(min_time/ DT)
         ):
-            sel_objects[objects_id == (obj + 1)] =     new_obj_id
-            new_obj_id += 1
+            if objects == None:
+                sel_objects[objects_id == (obj + 1)] =     new_obj_id
+                new_obj_id += 1
+            else:
+                sel_objects[objects[obj]][objects_id[objects[obj]] == (obj + 1)] = new_obj_id
+                new_obj_id += 1
 
     return sel_objects
 
@@ -213,10 +221,11 @@ def calc_object_characteristics(
         print("            Loop over " + str(num_objects) + " objects")
         
         for iobj in range(num_objects):
-            object_slice = np.copy(var_objects[object_indices[iobj]])
-            data_slice   = np.copy(var_data[object_indices[iobj]])
             if object_indices[iobj] == None:
                 continue
+            object_slice = np.copy(var_objects[object_indices[iobj]])
+            data_slice   = np.copy(var_data[object_indices[iobj]])
+
             time_idx_slice = object_indices[iobj][0]
             lat_idx_slice  = object_indices[iobj][1]
             lon_idx_slice  = object_indices[iobj][2]
@@ -2519,7 +2528,7 @@ def MultiObjectIdentification(
     rgiVolObj=np.array([np.sum(rgiObjectsPR[Objects[ob]] == ob+1) for ob in range(nr_objectsUD)])
     ZERO_V =  np.where(rgiVolObj == 0)
     if len(ZERO_V[0]) > 0:
-        Dummy = [slice(0, 1, None), slice(0, 1, None), slice(0, 1, None)]
+        Dummy = (slice(0, 1, None), slice(0, 1, None), slice(0, 1, None))
         Objects = np.array(Objects)
         for jj in ZERO_V[0]:
             Objects[jj] = Dummy
@@ -3190,7 +3199,7 @@ def MCStracking(
 
     # Keep only large and long enough objects
     # Remove objects that are too small or short lived
-    pr_objects = remove_small_short_objects(objects_id_pr,area_objects,min_area_pr,min_time_pr,DT)
+    pr_objects = remove_small_short_objects(objects_id_pr,area_objects,min_area_pr,min_time_pr,DT, objects = object_indices)
 
     grPRs = calc_object_characteristics(
         pr_objects,  # feature object file
@@ -3231,7 +3240,7 @@ def MCStracking(
 
     # Keep only large and long enough objects
     # Remove objects that are too small or short lived
-    objects_id_bt = remove_small_short_objects(objects_id_bt,area_objects,min_area_bt,min_time_bt,DT)
+    objects_id_bt = remove_small_short_objects(objects_id_bt,area_objects,min_area_bt,min_time_bt,DT, objects = object_indices)
 
     end_time = time.time()
     print(f"======> 'Tracking clouds: {(end_time-start_time):.2f} seconds \n")
@@ -3767,8 +3776,8 @@ def ar_check(objects_mask,
         if Objects[ii] == None:
             continue
         ObjACT = objects_mask[Objects[ii]] == ii+1
-        LonObj = Lon[Objects[ii][1],Objects[ii][2]]
-        LatObj = Lat[Objects[ii][1],Objects[ii][2]]
+        LonObj = np.array(Lon[Objects[ii][1],Objects[ii][2]])
+        LatObj = np.array(Lat[Objects[ii][1],Objects[ii][2]])
         # check if object crosses the date line
         if LonObj.max()-LonObj.min() > 359:
             ObjACT = np.roll(ObjACT, int(ObjACT.shape[2]/2), axis=2)
@@ -4435,7 +4444,7 @@ def mcs_pr_tracking(pr,
     rgiVolObj=np.array([np.sum(rgiObjectsPR[Objects[ob]] == ob+1) for ob in range(nr_objectsUD)])
     ZERO_V =  np.where(rgiVolObj == 0)
     if len(ZERO_V[0]) > 0:
-        Dummy = [slice(0, 1, None), slice(0, 1, None), slice(0, 1, None)]
+        Dummy = (slice(0, 1, None), slice(0, 1, None), slice(0, 1, None))
         Objects = np.array(Objects)
         for jj in ZERO_V[0]:
             Objects[jj] = Dummy
@@ -4581,34 +4590,38 @@ def track_tropwaves(pr,
     from Tracking_Functions import ConnectLon_on_timestep
 
     pr_eq = pr.copy()
-    pr_eq[:,np.abs(Lat[:,0]) > 10] = 0
-
-    pr_eq = interpolate_numba(pr_eq)
+    pr_eq[:,np.abs(Lat[:,0]) > 20] = 0
+    
+    pr_eq = interpolate_numba(np.array(pr_eq))
     tropical_waves = KFfilter(pr_eq,
                      int(24/dT))
 
+    er = KFfilter.erfilter(tropical_waves, fmin=None, fmax=None, kmin=-10, kmax=-1, hmin=0, hmax=90, n=1) # had to set hmin from 8 to 0
     eig0 = KFfilter.eig0filter(tropical_waves)
     kelvin = KFfilter.kelvinfilter(tropical_waves)
     igw = KFfilter.igfilter(tropical_waves)
     mrg = KFfilter.mrgfilter(tropical_waves)
 
+    er_mask = er > 0.05
     mrg_mask = mrg > 0.05
     igw_mask = igw > 0.2
     kelvin_mask = kelvin > 0.1
     eig0_mask = eig0 > 0.1
-    wave_names = ['MRG','IGW','Kelvin','Eig0']
+    wave_names = ['ER','MRG','IGW','Kelvin','Eig0']
 
     print('        track tropical waves')
     rgiObj_Struct=np.zeros((3,3,3)); rgiObj_Struct[:,:,:]=1
-    for wa in range(4):
+    for wa in range(5):
         print('            work on '+wave_names[wa])
         if wa == 0:
+            wave = er_mask.copy()
+        if wa == 1:
             wave = mrg_mask.copy()
-        elif wa == 1:
-            wave = igw_mask.copy()
         elif wa == 2:
-            wave = kelvin_mask.copy()
+            wave = igw_mask.copy()
         elif wa == 3:
+            wave = kelvin_mask.copy()
+        elif wa == 4:
             wave = eig0_mask.copy()
         rgiObjectsUD, nr_objectsUD = ndimage.label(wave, structure=rgiObj_Struct)
         print('                '+str(nr_objectsUD)+' object found')
@@ -4626,19 +4639,21 @@ def track_tropwaves(pr,
             wave_objects = ConnectLon_on_timestep(wave_objects)
 
         if wa == 0:
-            mrg_objects = wave_objects.copy()
+            er_objects = wave_objects.copy()
         if wa == 1:
-            igw_objects = wave_objects.copy()
+            mrg_objects = wave_objects.copy()
         if wa == 2:
-            kelvin_objects = wave_objects.copy()
+            igw_objects = wave_objects.copy()
         if wa == 3:
+            kelvin_objects = wave_objects.copy()
+        if wa == 4:
             eig0_objects = wave_objects.copy()
-            
+
     del wave
     del wave_objects
     del pr_eq
-    
-    return mrg_objects, igw_objects, kelvin_objects, eig0_objects
+
+    return mrg_objects, igw_objects, kelvin_objects, eig0_objects, er_objects
 
 
 
@@ -4876,7 +4891,7 @@ def moaap(
     if ew_test == 'yes':
         print('======> track tropical waves')
         start = time.perf_counter()
-        mrg_objects, igw_objects, kelvin_objects, eig0_objects = track_tropwaves(
+        mrg_objects, igw_objects, kelvin_objects, eig0_objects, er_objects = track_tropwaves(
                         pr,
                         Lat,
                         connectLon,
@@ -4918,6 +4933,16 @@ def moaap(
         gr_eig0 = calc_object_characteristics(eig0_objects, # feature object file
                                  pr,         # original file used for feature detection
                                  OutputFolder+'Eig0_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+SetupString,        # output file name and locaiton
+                                 Time,            # timesteps of the data
+                                 Lat,             # 2D latidudes
+                                 Lon,             # 2D Longitudes
+                                 Gridspacing,
+                                 Area,
+                                 min_tsteps=int(48/dT))      # minimum livetime in hours
+        
+        gr_er = calc_object_characteristics(er_objects, # feature object file
+                                 pr,         # original file used for feature detection
+                                 OutputFolder+'ER_'+str(StartDay.year)+str(StartDay.month).zfill(2)+'_'+SetupString,        # output file name and locaiton
                                  Time,            # timesteps of the data
                                  Lat,             # 2D latidudes
                                  Lon,             # 2D Longitudes
@@ -5013,7 +5038,7 @@ def moaap(
         Tgrad_zero = 0.45 #*100/(np.mean([dLon,dLat], axis=0)/1000.)  # 0.45 K/(100 km)
         import metpy.calc as calc
         from metpy.units import units
-        CoriolisPar = calc.coriolis_parameter(np.deg2rad(Lat))
+        CoriolisPar = np.array(calc.coriolis_parameter(np.deg2rad(Lat)))
         Frontal_Diagnostic = np.array(Fstar/(CoriolisPar * Tgrad_zero))
         
         FrontMask = np.copy(Mask)
@@ -5306,6 +5331,7 @@ def moaap(
         IGW = dataset.createVariable('IGW_Objects', np.float32,('time','yc','xc'),zlib=True)
         KELVIN = dataset.createVariable('Kelvin_Objects', np.float32,('time','yc','xc'),zlib=True)
         EIG = dataset.createVariable('EIG0_Objects', np.float32,('time','yc','xc'),zlib=True)
+        ER = dataset.createVariable('ER_Objects', np.float32,('time','yc','xc'),zlib=True)
         
 
     times.calendar = "standard"
@@ -5433,6 +5459,10 @@ def moaap(
         EIG.coordinates = "lon lat"
         EIG.longname = "Eastward Inertio Gravirt wave objects"
         EIG.unit = ""
+        
+        ER.coordinates = "lon lat"
+        ER.longname = "Equatorial Rossby wave objects"
+        ER.unit = ""
 
     lat[:] = Lat
     lon[:] = Lon
@@ -5474,6 +5504,7 @@ def moaap(
         IGW[:] = igw_objects
         KELVIN[:] = kelvin_objects
         EIG[:] = eig0_objects
+        ER[:] = er_objects
                 
     times[:] = iTime
 
