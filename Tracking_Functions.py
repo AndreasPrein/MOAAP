@@ -4870,8 +4870,6 @@ def moaap(
     if jet_test == 'yes':
         print('======> track jetstream')
         start = time.perf_counter()
-        MinTimeJS = 24 # hours
-        js_min_anomaly = 22
         uv200 = (u200 ** 2 + v200 ** 2) ** 0.5
 
         jet_objects, object_split = jetstream_tracking(uv200,
