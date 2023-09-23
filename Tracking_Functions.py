@@ -5051,7 +5051,6 @@ def moaap(
         
         Frontal_Diagnostic = np.abs(Frontal_Diagnostic)
         Frontal_Diagnostic[:,FrontMask == 0] = 0
-        stop()
         FR_objects = frontal_identification(Frontal_Diagnostic,
                               front_treshold,
                               MinAreaFR,
