@@ -4731,6 +4731,8 @@ def moaap(
     Area[Area < 0] = 0
     
     EarthCircum = 40075000 #[m]
+    Lat = np.array(Lat)
+    Lon = np.array(Lon)
     dLat = np.copy(Lon); dLat[:] = EarthCircum/(360/(Lat[1,0]-Lat[0,0]))
     dLon = np.copy(Lon)
     for la in range(Lat.shape[0]):
@@ -5030,6 +5032,7 @@ def moaap(
         print('======> identify frontal zones')
         start = time.perf_counter()
         
+        # -------
         dx = dLon
         dy = dLat
         du = np.gradient( np.array(u850) )
@@ -5051,6 +5054,9 @@ def moaap(
         
         Frontal_Diagnostic = np.abs(Frontal_Diagnostic)
         Frontal_Diagnostic[:,FrontMask == 0] = 0
+        # -------
+        
+        
         FR_objects = frontal_identification(Frontal_Diagnostic,
                               front_treshold,
                               MinAreaFR,
