@@ -4717,13 +4717,13 @@ def moaap(
     TC_minBT = 241,                # minimum average cloud top brightness temperature [K]
     # MCs detection
     MCS_Minsize = 5000,            # minimum size of precipitation area [km2] 
-    MCS_minPR = 15,                 # minimum precipitation threshold [mm/h]
+    MCS_minPR = 15,                # minimum precipitation threshold [mm/h]
     CL_MaxT = 215,                 # minimum brightness temperature in ice shield [K]
     CL_Area = 40000,               # minimum cloud area size [km2]
-    MCS_minTime = 4,                # minimum lifetime of MCS [hours]
+    MCS_minTime = 4,               # minimum lifetime of MCS [hours]
     js_min_anomaly = 24,           # jet minimal anomaly [m/s]
     MinTimeJS = 24,                # minimum lifetime of jets [h]
-    tropwave_minTime               # minimum lifetime of tropical waves [h]
+    tropwave_minTime = 48          # minimum lifetime of tropical waves [h]
     ):
     
     # calculate grid spacing assuming regular lat/lon grid
