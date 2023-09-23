@@ -4735,6 +4735,8 @@ def moaap(
     dLon = np.copy(Lon)
     for la in range(Lat.shape[0]):
         dLon[la,:] = EarthCircum/(360/(Lat[1,0]-Lat[0,0]))*np.cos(np.deg2rad(Lat[la,0]))
+    dLat = np.abs(dLat)
+    dLon = np.abs(dLon)
     
     StartDay = Time[0]
     SetupString = DataName+'_dt-'+str(dT)+'h_MOAAP-masks'
@@ -4884,7 +4886,7 @@ def moaap(
                                      Lon,             # 2D Longitudes
                                      Gridspacing,
                                      Area,
-                                     min_tsteps=int(MinTimeCY/dT),
+                                     min_tsteps=int(MinTimeJS/dT),
                                      split_merge = object_split)
         
         end = time.perf_counter()
@@ -5030,10 +5032,10 @@ def moaap(
         
         dx = dLon
         dy = dLat
-        du = np.gradient( u850 )
-        dv = np.gradient( v850 )
+        du = np.gradient( np.array(u850) )
+        dv = np.gradient( np.array(v850) )
         PV = np.abs( dv[-1]/dx[None,:] - du[-2]/dy[None,:] )
-        vgrad = np.gradient(t850, axis=(1,2))
+        vgrad = np.gradient(np.array(t850), axis=(1,2))
         Tgrad = np.sqrt(vgrad[0]**2 + vgrad[1]**2)
 
         Fstar = PV * Tgrad
@@ -5049,7 +5051,7 @@ def moaap(
         
         Frontal_Diagnostic = np.abs(Frontal_Diagnostic)
         Frontal_Diagnostic[:,FrontMask == 0] = 0
-        
+        stop()
         FR_objects = frontal_identification(Frontal_Diagnostic,
                               front_treshold,
                               MinAreaFR,
