@@ -843,7 +843,7 @@ def BreakupObjects(
     ii = 1
     
     object_split = {} # this directory holds information about splitting and merging of objects
-    for obj in range(len(rgiObjNrs)):
+    for obj in tqdm(range(len(rgiObjNrs))):
         iOb = rgiObjNrs[obj]
         if TT[obj] <= MinLif:
             # ignore short lived objects
@@ -4720,7 +4720,10 @@ def moaap(
     MCS_minPR = 15,                 # minimum precipitation threshold [mm/h]
     CL_MaxT = 215,                 # minimum brightness temperature in ice shield [K]
     CL_Area = 40000,               # minimum cloud area size [km2]
-    MCS_minTime = 4                # minimum lifetime of MCS [hours]
+    MCS_minTime = 4,                # minimum lifetime of MCS [hours]
+    js_min_anomaly = 24,           # jet minimal anomaly [m/s]
+    MinTimeJS = 24,                # minimum lifetime of jets [h]
+    tropwave_minTime               # minimum lifetime of tropical waves [h]
     ):
     
     # calculate grid spacing assuming regular lat/lon grid
@@ -4908,7 +4911,7 @@ def moaap(
                                  Lon,             # 2D Longitudes
                                  Gridspacing,
                                  Area,
-                                 min_tsteps=int(48/dT))      # minimum livetime in hours
+                                 min_tsteps=int(tropwave_minTime/dT))      # minimum livetime in hours
         
         gr_igw = calc_object_characteristics(igw_objects, # feature object file
                                  pr,         # original file used for feature detection
