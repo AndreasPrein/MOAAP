@@ -5528,5 +5528,8 @@ def moaap(
         a_file = open(OutputFolder+str(Time[0].year)+str(Time[0].month).zfill(2)+'_TCs_tracks.pkl', "wb")
         pickle.dump(TC_Tracks, a_file)
         a_file.close()
-        
+    try:
+        object_split
+    except NameError:
+        object_split = False    
     return object_split
