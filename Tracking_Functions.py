@@ -5023,8 +5023,8 @@ def moaap(
                          Gridspacing,
                          Area)
         
-    end = time.perf_counter()
-    timer(start, end)
+       end = time.perf_counter()
+       timer(start, end)
     
     if front_test == 'yes':
         print('======> identify frontal zones')
