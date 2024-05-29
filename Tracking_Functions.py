@@ -2300,32 +2300,41 @@ def ar_850hpa_tracking(
 
 
 
+            
 def ar_ivt_tracking(IVT,
-                    IVTtrheshold,
+                    IVTthresholdAbs,
+                    IVTthresholdRel,
                     MinTimeIVT,
                     dT,
-                    connectLon):
-            
-            potIVTs = (IVT > IVTtrheshold)
-            rgiObj_Struct=np.zeros((3,3,3)); rgiObj_Struct[:,:,:]=1
-            rgiObjectsIVT, nr_objectsUD = ndimage.label(potIVTs, structure=rgiObj_Struct)
-            print('        '+str(nr_objectsUD)+' object found')
-
-            IVT_objects, _ = clean_up_objects(rgiObjectsIVT,
-                                           dT,
-                                    min_tsteps=int(MinTimeIVT/dT))
-
-            print('        break up long living IVT objects that have many elements')
-            IVT_objects, object_split = BreakupObjects(IVT_objects,
-                                         int(MinTimeIVT/dT),
-                                        dT)
-
-            if connectLon == 1:
-                print('        connect IVT objects over date line')
-                IVT_objects = ConnectLon_on_timestep(IVT_objects)
-
-            return IVT_objects
+                    connectLon,
+                    Time):
+    
+    potIVTs = (IVT > IVTthresholdAbs)
         
+    if IVTthresholdRel is not None:
+        for tt in range(len(Time)):
+            month = Time[tt].month
+            
+            potIVTs[tt, :, :] = (IVT[tt, :, :] > IVTthresholdRel[month - 1, :, :]) & ( IVT[tt, :, :] > IVTthresholdAbs)
+    rgiObj_Struct=np.zeros((3,3,3)); rgiObj_Struct[:,:,:]=1
+    rgiObjectsIVT, nr_objectsUD = ndimage.label(potIVTs, structure=rgiObj_Struct)
+    print('        '+str(nr_objectsUD)+' object found')
+
+    IVT_objects, _ = clean_up_objects(rgiObjectsIVT,
+                                dT,
+                            min_tsteps=int(MinTimeIVT/dT))
+
+    print('        break up long living IVT objects that have many elements')
+    IVT_objects, object_split = BreakupObjects(IVT_objects,
+                                int(MinTimeIVT/dT),
+                                dT)
+
+    if connectLon == 1:
+        print('        connect IVT objects over date line')
+        IVT_objects = ConnectLon_on_timestep(IVT_objects)
+
+    return IVT_objects
+
 
         
 def ar_check(objects_mask,
@@ -3609,7 +3618,9 @@ def moaap(
     MinTimeC = 4,                  # mimimum livetime of ice cloud shields [hours]
     MinAreaC = 40000,              # mimimum area of ice cloud shields [km2]
     # AR tracking
-    IVTtrheshold = 500,            # Integrated water vapor transport threshold for AR detection [kg m-1 s-1]
+    IVTtrhesholdAbs = 500,            # Absolute Integrated water vapor transport threshold for AR detection [kg m-1 s-1]
+    IVTtrhesholdRel = None,            # Monthly and Grid point based relative Integrated water vapor transport threshold for AR detection [kg m-1 s-1], e.g. computed via percentiles. Can be used in addition to absolute threshold.
+                                        #Should be an array of shape (12, lat.size,lon.size), where e.g. [0,:,:] denotes the threshold field for January.
     MinTimeIVT = 9,                # minimum livetime of ARs [hours]
     AR_MinLen = 2000,              # mimimum length of an AR [km]
     AR_Lat = 20,                   # AR centroids have to be poeward of this latitude
@@ -3921,10 +3932,11 @@ def moaap(
         IVT = (ivte ** 2 + ivtn ** 2) ** 0.5
 
         IVT_objects = ar_ivt_tracking(IVT,
-                                    IVTtrheshold,
+                                    IVTtrhesholdAbs,
+                                    IVTtrhesholdRel,
                                     MinTimeIVT,
                                     dT,
-                                    connectLon)
+                                    connectLon,Time)
 
         grIVTs = calc_object_characteristics(IVT_objects, # feature object file
                                      IVT,         # original file used for feature detection
@@ -4229,6 +4241,7 @@ def moaap(
     # ============================
     # Write NetCDF
     iTime = np.array((Time - Time[0]).total_seconds()).astype('int')
+
 
     dataset = Dataset(NCfile,'w',format='NETCDF4_CLASSIC')
     yc = dataset.createDimension('yc', Lat.shape[0])
